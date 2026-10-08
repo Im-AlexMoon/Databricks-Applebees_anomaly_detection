@@ -216,3 +216,9 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Local data and EDA artifacts
+data/
+outputs/
+*.duckdb
+*.duckdb.wal

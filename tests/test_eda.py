@@ -4,6 +4,7 @@ from pathlib import Path
 import shutil
 import uuid
 import unittest
+import zipfile
 
 import numpy as np
 import pandas as pd
@@ -171,6 +172,25 @@ class EDATests(unittest.TestCase):
         self.assertEqual(manifest["counts"]["checks"],2)
         with self.assertRaises(FileExistsError):
             ingest(config)
+
+    def test_zip_members_are_streamed_without_extracting(self):
+        config = write_dataset(self.root,[check()])
+        archive = self.root/"facts.zip"
+        with zipfile.ZipFile(archive,"w",zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("facts/checks_1.json",json.dumps([check(1),check(2)]))
+            zf.writestr("facts/checks_2.jsonl",json.dumps(check(3)))
+            zf.writestr("facts/readme.txt","ignored")
+            zf.write(config.catalogs["employees"],"employees.json")
+        config.checks = (f"{archive}::facts/checks_*",)
+        config.catalogs["employees"] = f"{archive}::employees.json"
+        manifest = ingest(config)
+        self.assertEqual(manifest["counts"]["checks"],3)
+        self.assertEqual(manifest["catalogs"]["employees"],"loaded")
+        con = open_database(config)
+        self.connections.append(con)
+        config.checks = (f"{archive}::facts/*.json",)
+        with self.assertRaises(ValueError):  # Different member selection than the snapshot.
+            open_database(config)
 
     def test_all_eda_queries_and_two_discount_levels(self):
         c = check(discount=2)

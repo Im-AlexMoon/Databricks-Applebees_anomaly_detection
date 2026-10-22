@@ -7,16 +7,19 @@ with a configurable tolerance; they are not an accounting ledger.
 from __future__ import annotations
 
 from collections import Counter
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterator
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+import fnmatch
 import glob
 import hashlib
 import json
 import shutil
 import uuid
+import zipfile
 
 import duckdb
 import ijson
@@ -147,9 +150,75 @@ def _array(obj, key, issues):
     return value
 
 
-def records(path: Path, prefix: str | None = None) -> Iterator[dict]:
-    """Stream a top-level array, explicit wrapper, or NDJSON (.jsonl/.ndjson)."""
-    with path.open("rb") as handle:
+ZIP_SEPARATOR = "::"
+JSON_SUFFIXES = (".json", ".jsonl", ".ndjson")
+
+
+def sources(patterns) -> list[str]:
+    """Expand file globs and 'archive.zip::member_glob' entries without extracting.
+
+    'archive.zip' alone selects every JSON/NDJSON member. Members are matched
+    with fnmatch, where '*' also crosses folders inside the archive.
+    """
+    found = set()
+    for pattern in patterns:
+        archive_pattern, sep, member_pattern = str(pattern).partition(ZIP_SEPARATOR)
+        if not sep and not archive_pattern.lower().endswith(".zip"):
+            found.update(str(Path(p).resolve()) for p in
+                glob.glob(str(Path(pattern).expanduser()), recursive=True) if Path(p).is_file())
+            continue
+        for archive in glob.glob(str(Path(archive_pattern).expanduser()), recursive=True):
+            if not Path(archive).is_file():
+                continue
+            with zipfile.ZipFile(archive) as zf:
+                for info in zf.infolist():
+                    name = info.filename
+                    if info.is_dir() or name.startswith("__MACOSX/"):
+                        continue
+                    if (fnmatch.fnmatch(name, member_pattern) if member_pattern
+                            else name.lower().endswith(JSON_SUFFIXES)):
+                        found.add(f"{Path(archive).resolve()}{ZIP_SEPARATOR}{name}")
+    return sorted(found)
+
+
+def signature(source: str) -> dict:
+    """Detect changes: size and mtime for files, size and CRC for zip members."""
+    archive, sep, member = source.partition(ZIP_SEPARATOR)
+    if not sep:
+        stat = Path(source).stat()
+        return {"path": source, "size": stat.st_size, "mtime_ns": stat.st_mtime_ns}
+    with zipfile.ZipFile(archive) as zf:
+        info = zf.getinfo(member)
+    return {"path": source, "size": info.file_size, "crc": info.CRC}
+
+
+def _catalog_source(configured: str | None) -> str | None:
+    matches = sources([configured]) if configured else []
+    if len(matches) > 1:
+        raise ValueError(f"{configured}: el catálogo coincide con {len(matches)} archivos; usa una ruta exacta")
+    return matches[0] if matches else None
+
+
+@contextmanager
+def _open_source(source: str):
+    archive, sep, member = str(source).partition(ZIP_SEPARATOR)
+    if not sep:
+        with open(source, "rb") as handle:
+            yield handle
+        return
+    with zipfile.ZipFile(archive) as zf, zf.open(member) as handle:
+        yield handle
+
+
+def records(path: Path | str, prefix: str | None = None) -> Iterator[dict]:
+    """Stream a top-level array, explicit wrapper, or NDJSON (.jsonl/.ndjson).
+
+    `path` can be a file or an 'archive.zip::member' entry from sources().
+    """
+    source = str(path)
+    # Name used for suffix detection and messages: the member inside a zip.
+    path = Path(source.partition(ZIP_SEPARATOR)[2] or source)
+    with _open_source(source) as handle:
         # BOM is valid in some exports, but not accepted by ijson.
         if handle.read(3) != b"\xef\xbb\xbf":
             handle.seek(0)
@@ -249,8 +318,7 @@ def ingest(config: Config) -> dict:
     Memory is bounded by batch_checks plus the size of a single check and the
     small location lookup. Missing catalogs are supported and reported.
     """
-    files = sorted({str(Path(p).resolve()) for pattern in config.checks
-        for p in glob.glob(str(Path(pattern).expanduser()), recursive=True) if Path(p).is_file()})
+    files = sources(config.checks)
     if not files:
         raise FileNotFoundError("No hay checks para las rutas configuradas")
     target = config.output_dir.resolve() / "parquet"
@@ -267,16 +335,14 @@ def ingest(config: Config) -> dict:
     counts = Counter()
     try:
         for name in ("revenue_centers", "locations", "items", "employees"):
-            configured = config.catalogs.get(name)
-            path = Path(configured).expanduser() if configured else None
-            if path is None or not path.is_file():
+            source = _catalog_source(config.catalogs.get(name))
+            if source is None:
                 catalog_status[name] = "missing"
                 catalog_files[name] = None
                 continue
             catalog_status[name] = "loaded"
-            catalog_files[name] = {"path": str(path.resolve()), "size": path.stat().st_size,
-                "mtime_ns": path.stat().st_mtime_ns}
-            for obj in records(path, config.json_prefixes.get(name)):
+            catalog_files[name] = signature(source)
+            for obj in records(source, config.json_prefixes.get(name)):
                 writer.add(name, _catalog_row(name, obj))
                 if name == "locations":
                     key = _id(obj.get("Id"))
@@ -295,9 +361,8 @@ def ingest(config: Config) -> dict:
                     writer.flush()
         writer.flush()
         for filename in files:
-            path = Path(filename)
             token = hashlib.sha256(filename.encode()).hexdigest()[:20]
-            for row_number, c in enumerate(records(path, config.json_prefixes.get("checks")), 1):
+            for row_number, c in enumerate(records(filename, config.json_prefixes.get("checks")), 1):
                 uid = f"{token}:{row_number}"
                 zone = location_rows.get(_id(c.get("LocationId")))
                 op, ou, os = local_time_info(c.get("OpenTime"), zone)
@@ -344,8 +409,7 @@ def ingest(config: Config) -> dict:
                 if counts["checks"] % config.batch_checks == 0:
                     writer.flush()
         writer.finish()
-        manifest = {"version": 2, "files": [{"path": f, "size": Path(f).stat().st_size,
-            "mtime_ns": Path(f).stat().st_mtime_ns} for f in files],
+        manifest = {"version": 2, "files": [signature(f) for f in files],
             "catalogs": catalog_status, "catalog_files": catalog_files,
             "counts": dict(writer.counts), "issues": dict(issues),
             "json_prefixes": config.json_prefixes}
@@ -365,14 +429,11 @@ def open_database(config: Config):
     manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
     if manifest.get("version") != 2:
         raise ValueError("Snapshot de una versión anterior; usa otro output_dir.")
-    current = sorted({str(Path(p).resolve()) for pattern in config.checks
-        for p in glob.glob(str(Path(pattern).expanduser()), recursive=True) if Path(p).is_file()})
-    signatures = [{"path": f, "size": Path(f).stat().st_size, "mtime_ns": Path(f).stat().st_mtime_ns} for f in current]
+    signatures = [signature(f) for f in sources(config.checks)]
     catalog_files = {}
     for name in ("revenue_centers", "locations", "items", "employees"):
-        path = Path(config.catalogs[name]).expanduser() if config.catalogs.get(name) else None
-        catalog_files[name] = ({"path": str(path.resolve()), "size": path.stat().st_size,
-            "mtime_ns": path.stat().st_mtime_ns} if path and path.is_file() else None)
+        source = _catalog_source(config.catalogs.get(name))
+        catalog_files[name] = signature(source) if source else None
     if (signatures != manifest["files"] or catalog_files != manifest.get("catalog_files")
             or config.json_prefixes != manifest["json_prefixes"]):
         raise ValueError("Los archivos o prefijos cambiaron desde el snapshot. Usa otro output_dir y vuelve a ingerir.")

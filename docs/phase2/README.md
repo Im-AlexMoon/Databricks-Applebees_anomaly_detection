@@ -180,7 +180,7 @@ diagramas. Las pruebas de estructura y la inspección visual no sustituyen una
 prueba de edición dentro de la versión de PowerPoint del presentador.
 
 `scripts/build_phase2_demo.py` crea un respaldo guiado en MP4 a partir de capturas
-reales del navegador. Cada escena exige archivo, URL, instante de captura,
+reales del navegador y gráficos derivados de Gold. Cada escena exige archivo, URL, instante de captura,
 texto y duración en `scenes.json`. El video incluye subtítulos en español y
 no tiene audio. Conserva las capturas y su procedencia junto al video.
 Requiere `uv pip install --python .venv/Scripts/python.exe imageio-ffmpeg`.

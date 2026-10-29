@@ -208,6 +208,8 @@ def main():
     elif args.command=='evidence':
         w=client();root=ROOT/'outputs/phase2_cloud'/state['batch_version'];root.mkdir(parents=True,exist_ok=True)
         run_id=args.run_id or state.get('last_run_id')
+        if not run_id:
+            raise ValueError('Provide --run-id to freeze evidence for a completed execution')
         run=w.jobs.get_run(run_id) if run_id else None
         if run and (not run.state.result_state or run.state.result_state.value!='SUCCESS'):
             raise ValueError('Wait for all four tasks to finish successfully before freezing evidence')

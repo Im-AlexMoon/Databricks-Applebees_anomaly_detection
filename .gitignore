@@ -222,3 +222,10 @@ data/
 outputs/
 *.duckdb
 *.duckdb.wal
+
+# Databricks local authentication, deployment state and downloaded tools
+.cache/
+.databricks/
+.databrickscfg
+databricks.local.yml
+.chart-data-*/

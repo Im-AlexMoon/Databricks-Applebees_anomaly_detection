@@ -1,0 +1,5 @@
+# Local tooling. Databricks supplies Spark and Lakeflow in the workspace.
+-r requirements.txt
+databricks-sdk>=0.157,<1
+PyYAML>=6,<7
+simplejson>=3.19,<4

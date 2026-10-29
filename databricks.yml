@@ -1,0 +1,43 @@
+bundle:
+  name: applebees_phase2
+
+include:
+  - resources/jobs/*.yml
+  - resources/pipelines/*.yml
+
+variables:
+  catalog:
+    description: Existing Unity Catalog catalog
+    default: workspace
+  schema:
+    description: Private project schema
+    default: applebees_phase2
+  landing_root:
+    description: Immutable staged snapshot path under the landing volume
+  snapshot_id:
+    description: Transport manifest snapshot identifier
+  rules_version:
+    description: Reason dictionary SHA256 prefix
+  manifest_path:
+    description: Active batch manifest in the volume
+
+sync:
+  include:
+    - src/**
+    - tests/fixtures/**
+  exclude:
+    - data/**
+    - outputs/**
+    - .cache/**
+    - .venv/**
+    - .git/**
+    - notebooks/**
+    - applebees_eda/**
+    - phase2/**
+
+targets:
+  dev:
+    default: true
+    mode: development
+    workspace:
+      root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/applebees_phase2/dev

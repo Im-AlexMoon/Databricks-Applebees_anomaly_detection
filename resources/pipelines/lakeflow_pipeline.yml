@@ -1,0 +1,25 @@
+resources:
+  pipelines:
+    applebees_pipeline:
+      name: applebees_phase2
+      catalog: ${var.catalog}
+      schema: ${var.schema}
+      serverless: true
+      photon: true
+      continuous: false
+      edition: ADVANCED
+      channel: CURRENT
+      configuration:
+        phase2.catalog: ${var.catalog}
+        phase2.schema: ${var.schema}
+        phase2.snapshot_id: ${var.snapshot_id}
+        phase2.rules_version: ${var.rules_version}
+        phase2.landing_root: ${var.landing_root}
+        phase2.source_root: ${workspace.file_path}
+      libraries:
+        - file:
+            path: ../../src/transformations/bronze/ingestion.py
+        - file:
+            path: ../../src/transformations/silver/tables.py
+        - file:
+            path: ../../src/transformations/gold/metrics.py

@@ -1,0 +1,69 @@
+resources:
+  jobs:
+    applebees_job:
+      name: applebees_phase2_delivery
+      max_concurrent_runs: 1
+      timeout_seconds: 7200
+      schedule:
+        quartz_cron_expression: 0 0 6 * * ?
+        timezone_id: America/Mexico_City
+        pause_status: PAUSED
+      parameters:
+        - name: catalog
+          default: ${var.catalog}
+        - name: schema
+          default: ${var.schema}
+        - name: manifest_path
+          default: ${var.manifest_path}
+      environments:
+        - environment_key: phase2_env
+          spec:
+            environment_version: '4'
+      tasks:
+        - task_key: preflight
+          environment_key: phase2_env
+          timeout_seconds: 600
+          max_retries: 0
+          notebook_task:
+            notebook_path: ../../src/tasks/preflight.py
+            base_parameters:
+              catalog: '{{job.parameters.catalog}}'
+              schema: '{{job.parameters.schema}}'
+              manifest_path: '{{job.parameters.manifest_path}}'
+              source_root: ${workspace.file_path}
+        - task_key: update_pipeline
+          depends_on:
+            - task_key: preflight
+          timeout_seconds: 5400
+          max_retries: 1
+          min_retry_interval_millis: 60000
+          retry_on_timeout: false
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.applebees_pipeline.id}
+            full_refresh: false
+        - task_key: validate_results
+          depends_on:
+            - task_key: update_pipeline
+          environment_key: phase2_env
+          timeout_seconds: 1200
+          max_retries: 0
+          notebook_task:
+            notebook_path: ../../src/tasks/validate_results.py
+            base_parameters:
+              catalog: '{{job.parameters.catalog}}'
+              schema: '{{job.parameters.schema}}'
+              manifest_path: '{{job.parameters.manifest_path}}'
+              source_root: ${workspace.file_path}
+        - task_key: presentation_outputs
+          depends_on:
+            - task_key: validate_results
+          environment_key: phase2_env
+          timeout_seconds: 600
+          max_retries: 0
+          notebook_task:
+            notebook_path: ../../src/tasks/presentation_outputs.py
+            base_parameters:
+              catalog: '{{job.parameters.catalog}}'
+              schema: '{{job.parameters.schema}}'
+              manifest_path: '{{job.parameters.manifest_path}}'
+              source_root: ${workspace.file_path}

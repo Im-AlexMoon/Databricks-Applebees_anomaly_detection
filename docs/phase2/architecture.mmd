@@ -1,0 +1,17 @@
+flowchart LR
+    A[ZIP histórico y catálogos privados] --> B[Transporte NDJSON.gz\nUID, origen, SHA256]
+    B --> C[Unity Catalog Volume\nSnapshot y manifiesto inmutables]
+    C --> D[Bronze streaming\nAuto Loader y payload original]
+    D --> E[Silver materializadas\nTipos, catálogos y cuentas]
+    E --> Q[Cuarentena\nOrigen y motivo de exclusión]
+    E --> F[Silver hechos\nArtículos, descuentos, pagos, anulaciones e impuestos]
+    F --> G[Cuentas conciliadas\nAgregación de hijos antes de unir]
+    G --> H[Gold calidad\nConservación y cobertura]
+    G --> I[Gold negocio\nMotivos, semanas y productos]
+    H --> J[Aceptación del job]
+    I --> J
+    J --> K[Agregados verificados\nPresentación y demo]
+
+    subgraph Orquestación
+      P[preflight] --> U[update_pipeline] --> V[validate_results] --> O[presentation_outputs]
+    end

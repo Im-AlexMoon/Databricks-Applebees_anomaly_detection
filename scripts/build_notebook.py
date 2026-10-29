@@ -82,9 +82,12 @@ en ambos niveles y ajustes/propinas. No se calcula un total económico validado
 automáticamente al escoger la hipótesis con más coincidencias.
 ''')
 code('''
-RAW = Path(os.environ.get("APPLEBEES_RAW", str(ROOT / "data" / "raw")))
+RAW = Path(os.environ.get("APPLEBEES_RAW", "C:/Users/Alexander_Moon/Downloads"))
+# Checks diarios dentro del zip, sin descomprimir. El checks.json suelto de RAW
+# es una copia de un día y no se incluye (duplicaría claves).
+CHECKS = str(RAW / "facts.zip") + "::facts/checks/*/checks.json"
 config = Config(
-    checks=(os.environ.get("APPLEBEES_CHECKS", str(RAW / "checks*.json")),),
+    checks=(os.environ.get("APPLEBEES_CHECKS", CHECKS),),
     catalogs={
         "revenue_centers": str(RAW / "revenueCenters.json"),
         "locations": str(RAW / "locations.json"),
@@ -104,6 +107,9 @@ config = Config(
 )
 # Para archivos dentro de subcarpetas:
 # config.checks = (str(RAW / "checks" / "**" / "*.json"),)
+# Para leer desde un .zip sin descomprimir (ruta_zip::patrón_interno):
+# config.checks = (str(RAW / "facts.zip") + "::*.json",)
+# config.catalogs["items"] = str(RAW / "facts.zip") + "::items.json"
 # Para JSON {"Checks": [...]}: config.json_prefixes = {"checks": "Checks.item"}
 # .jsonl/.ndjson se reconocen por extensión; no se convierten a arrays en memoria.
 # Si el nombre del archivo de revenueCenters es diferente, cambia su ruta arriba.

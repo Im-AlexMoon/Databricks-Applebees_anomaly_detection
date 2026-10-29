@@ -12,6 +12,7 @@ const input=path.resolve(process.argv[2]??'');
 const runId=process.argv[3];
 if(!process.argv[2]||!runId)throw Error('Usage: build_phase2_presentation.mjs presentation_data.json RUN_ID [revision]');
 const revision=process.argv[4]??'v1';
+if(!/^[A-Za-z0-9_-]+$/.test(revision))throw Error('Invalid revision name');
 const build=path.join(root,'.cache/phase2_deck');
 const out=path.join(root,'outputs/phase2_delivery',revision);
 await fs.mkdir(build,{recursive:true});await fs.mkdir(out,{recursive:true});
@@ -26,6 +27,12 @@ const {Presentation,PresentationFile}=await import(pathToFileURL(require.resolve
 const {resolvePresentationFont,applyPresentationChartFont,finalizePresentation}=await import(pathToFileURL(path.join(skill,'container_tools/artifact_tool_utils.mjs')).href);
 const font=resolvePresentationFont();
 const fontPolicy={basis:'design',families:[font]};
+const coverPath=path.join(build,'cover.jpg');
+try{await fs.access(coverPath);}catch{
+ const response=await fetch('https://assets.simpleviewinc.com/simpleview/image/upload/c_fill%2Ch_396%2Cq_75%2Cw_704/v1/crm/easternkentucky/Applebees_027FE738-5056-A36A-0A750410E4201862-027fe5dc5056a36_027fe794-5056-a36a-0a2b7e20ac7a054c.jpg');
+ if(!response.ok)throw Error('Could not download the contextual cover photograph');
+ await fs.writeFile(coverPath,new Uint8Array(await response.arrayBuffer()));
+}
 const d=JSON.parse(await fs.readFile(input,'utf8'));
 const validation=JSON.parse(await fs.readFile(path.join(path.dirname(input),'validation.json'),'utf8'));
 if(validation.status!=='passed'||d.batch_version!==validation.manifest_version)throw Error('Expected accepted matching Databricks evidence');

@@ -6,6 +6,10 @@ from src.transformations.shared_time import local_time_info
 
 
 def run_synthetic_checks(spark):
+    from pyspark import cloudpickle
+    from pyspark.sql import functions as F
+    from src.transformations import shared_time
+    cloudpickle.register_pickle_by_value(shared_time)
     base={'Id':'valid','LocationId':'1','BusinessDate':'2026-05-04','ItemsSold':[],
           'Discounts':[],'Payments':[],'Voids':[],'Tax':[]}
     rows=[]
@@ -24,4 +28,7 @@ def run_synthetic_checks(spark):
     assert local_time_info('2026-03-08T02:30','America/Chicago')[2]=='nonexistent_local_time'
     assert local_time_info('2026-11-01T01:30','America/Chicago')[2]=='ambiguous_local_time'
     assert local_time_info('2026-05-04T12:00','America/Chicago')[2]=='valid'
-    return {'cases':9,'passed':9,'tests':['exact_replay','invalid_key','null_array','duplicate_key_group','conflicting_uid','DST_nonexistent','DST_ambiguous','valid_time','no_historical_writes']}
+    remote_time=F.udf(local_time_info,'struct<local:string,utc:string,status:string>')
+    times=spark.createDataFrame([('2026-05-04T12:00','America/Chicago')]*4,['time','zone']).repartition(4)
+    assert [r.status for r in times.select(remote_time('time','zone').getField('status').alias('status')).collect()]==['valid']*4
+    return {'cases':10,'passed':10,'tests':['exact_replay','invalid_key','null_array','duplicate_key_group','conflicting_uid','DST_nonexistent','DST_ambiguous','valid_time','executor_UDF_serialization','no_historical_writes']}

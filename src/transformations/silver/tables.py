@@ -5,7 +5,13 @@ from pyspark import pipelines as dp
 from pyspark.sql import functions as F,types as T,Window
 from src.transformations.contracts import CHECK_DDL,CATALOG_DDLS,environment,qualified
 from src.transformations.shared_time import local_time_info
+from src.transformations import shared_time
+from pyspark import cloudpickle
 from src.transformations.normalization import check_candidates
+
+# Workers may not mount the driver's Workspace source tree. Serialize this small
+# stdlib-only module by value so new executors do not need to import `src`.
+cloudpickle.register_pickle_by_value(shared_time)
 
 CATALOG,SCHEMA,SNAPSHOT,RULES=environment(spark)
 q=lambda name:qualified(spark,name)

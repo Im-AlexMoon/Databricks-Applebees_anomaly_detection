@@ -41,3 +41,16 @@ for name,query in queries.items():
     result['datasets'][name]=[row.asDict() for row in rows]
 (root/'presentation_data.json').write_text(json.dumps(result,indent=2,default=str),encoding='utf-8')
 print(json.dumps({'status':'exported','datasets':{k:len(v) for k,v in result['datasets'].items()},'source':'Databricks Gold'}))
+
+# COMMAND ----------
+# Bounded read-only outputs are also available in the run's notebook for the demo.
+display(spark.table(prefix+'.gold_quality'))
+
+# COMMAND ----------
+display(spark.sql(queries['reason_groups']))
+
+# COMMAND ----------
+display(spark.sql(queries['weekly_operations']))
+
+# COMMAND ----------
+display(spark.sql(queries['product_examples']))

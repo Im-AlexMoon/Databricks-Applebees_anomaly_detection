@@ -28,6 +28,8 @@ credenciales, estado del despliegue y evidencia detallada permanecen fuera de Gi
 ## Arquitectura y ejecución
 
 El archivo [architecture.mmd](architecture.mmd) documenta el flujo completo.
+La carpeta Git del workspace puede crearse/actualizarse con
+`scripts/phase2_cloud.py repo` después de subir la rama a GitHub.
 El job ejecuta cuatro tareas consecutivas:
 
 1. **preflight** verifica tamaño y SHA256 de cada archivo del manifiesto y
@@ -114,6 +116,9 @@ Ante un fallo: consultar `status ID`, revisar eventos con `events`, corregir la
 causa, desplegar el código y ejecutar de nuevo. Los archivos ya subidos se
 verifican y reutilizan. La relectura exacta de una cuenta con el mismo UID y payload
 se reduce a una fila; payloads incompatibles para un UID pasan a cuarentena.
+La función de horarios se serializa por valor para ejecutores que no montan
+la carpeta Workspace del driver. El preflight verifica también esa ejecución
+distribuida, además de los casos de DST.
 No usar `full_refresh` como reparación automática: reconstruye estado y puede
 consumir cuota. Documentar cualquier reconstrucción explícita.
 
@@ -153,6 +158,30 @@ La evidencia privada por lote se descarga a `outputs/phase2_cloud/<batch_version
 estado del job, eventos, `validation.json` y `presentation_data.json`. Este último
 incluye SQL y la procedencia Databricks Gold. La presentación debe usar únicamente
 un lote aceptado y citar su ejecución, snapshot y versión de motivos.
+
+## Presentación y respaldo
+
+`scripts/build_phase2_presentation.mjs` recibe `presentation_data.json`, Id del
+run y un nombre de revisión. Usa el runtime `@oai/artifact-tool` incluido en Codex,
+genera ocho diapositivas con notas y gráficos nativos, valida el PPTX y produce
+un PDF de las diapositivas renderizadas. Requiere el Node/Python de ese runtime.
+Los paths se pueden configurar con `CODEX_PRESENTATION_RUNTIME` y
+`CODEX_PRESENTATION_SKILL`. La foto contextual de portada conserva su fuente
+en las notas. Los borradores quedan en `.cache/phase2_deck`.
+
+El PDF es una copia visual. El PowerPoint conserva la edición de gráficos y
+diagramas. Las pruebas de estructura y la inspección visual no sustituyen una
+prueba de edición dentro de la versión de PowerPoint del presentador.
+
+`scripts/build_phase2_demo.py` crea un respaldo guiado en MP4 a partir de capturas
+reales del navegador. Cada escena exige archivo, URL, instante de captura,
+texto y duración en `scenes.json`. El video incluye subtítulos en español y
+no tiene audio. Conserva las capturas y su procedencia junto al video.
+Requiere `uv pip install --python .venv/Scripts/python.exe imageio-ffmpeg`.
+
+Los entregables con cifras permanecen en `outputs/phase2_delivery`, fuera del
+repositorio público. Para presentar, ensayar el guion de `rubric.md`, verificar
+la versión aceptada y abrir las consultas del notebook `presentation_outputs`.
 
 ## Fuentes técnicas
 

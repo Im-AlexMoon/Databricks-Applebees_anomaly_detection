@@ -116,6 +116,10 @@ def upload_manifest(w,manifest_path,catalog='workspace',schema='applebees_phase2
                'landing_root':landing,'manifest_path':remote_manifest}
     state={'host':w.config.host,'variables':variables,'local_manifest':str(manifest_path),'batch_version':batch}
     state_path=ROOT/'.cache'/'databricks'/'deployment.json';state_path.parent.mkdir(exist_ok=True)
+    if state_path.exists():
+        prior=json.loads(state_path.read_text())
+        if prior.get('host')==state['host']:
+            state.update({k:prior[k] for k in ('job_id','pipeline_id','repo_id') if k in prior})
     _atomic_json(state_path,state)
     progress('Sources ready; reference counts: '+json.dumps(manifest['reference']))
     return state
@@ -135,6 +139,21 @@ def resource_ids(state):
     summary=json.loads(bundle_command(['summary'],state,extra=('-o','json'),capture=True))
     return {'job_id':int(summary['resources']['jobs']['applebees_job']['id']),
             'pipeline_id':summary['resources']['pipelines']['applebees_pipeline']['id']}
+
+
+def deployment_receipt(state):
+    import hashlib,io
+    paths=sorted([*ROOT.glob('src/**/*.py'),ROOT/'databricks.yml',*ROOT.glob('resources/**/*.yml')])
+    files={p.relative_to(ROOT).as_posix():sha256_file(p) for p in paths}
+    code_hash=hashlib.sha256(json.dumps(files,sort_keys=True).encode()).hexdigest()
+    receipt={'code_sha256':code_hash,'files':files,'created_utc':datetime.now(timezone.utc).isoformat(),
+             'git_commit':subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip(),
+             'working_tree_dirty':bool(subprocess.check_output(['git','status','--porcelain'],cwd=ROOT,text=True).strip()),
+             'batch_version':state['batch_version'],'job_id':state['job_id'],'pipeline_id':state['pipeline_id']}
+    remote=state['variables']['landing_root']+'/evidence/'+state['batch_version']+'/deployment.json'
+    client().files.upload(remote,io.BytesIO(json.dumps(receipt,indent=2).encode()),overwrite=True)
+    state['code_sha256']=code_hash
+    return receipt
 
 
 def run_status(w,run_id,state):
@@ -162,6 +181,8 @@ def main():
     status=sub.add_parser('status');status.add_argument('run_id',type=int)
     sub.add_parser('evidence')
     sub.add_parser('events')
+    sub.add_parser('repo')
+    cancel=sub.add_parser('cancel');cancel.add_argument('run_id',type=int)
     args=p.parse_args()
     if args.command=='inspect':
         w=client();print(json.dumps({'active':w.current_user.me().active,'catalogs':[c.name for c in w.catalogs.list()]},indent=2));return
@@ -172,7 +193,8 @@ def main():
         bundle_command(['validate'],state)
     elif args.command=='deploy':
         bundle_command(['deploy'],state)
-        state.update(resource_ids(state));_atomic_json(ROOT/'.cache/databricks/deployment.json',state)
+        state.update(resource_ids(state));deployment_receipt(state)
+        _atomic_json(ROOT/'.cache/databricks/deployment.json',state)
         print(json.dumps({k:state[k] for k in ('job_id','pipeline_id')}))
     elif args.command=='run':
         if 'job_id' not in state:
@@ -191,6 +213,8 @@ def main():
                 for chunk in iter(lambda:response.contents.read(4*1024*1024),b''):
                     f.write(chunk)
             response.contents.close()
+        settings={'job':w.jobs.get(state['job_id']).as_dict(),'pipeline':w.pipelines.get(state['pipeline_id']).as_dict()}
+        _atomic_json(root/'resource_settings.json',settings)
         print(str(root))
     elif args.command=='events':
         if 'pipeline_id' not in state:
@@ -203,6 +227,19 @@ def main():
         out=ROOT/'outputs/phase2_cloud'/state['batch_version'];out.mkdir(parents=True,exist_ok=True)
         _atomic_json(out/'pipeline_events.json',events)
         print(json.dumps([{'timestamp':e.get('timestamp'),'level':e.get('level'),'event_type':e.get('event_type'),'message':e.get('message'),'error':e.get('error')} for e in events[:20]],indent=2))
+    elif args.command=='repo':
+        w=client();target='/Shared/applebees_phase2/repository'
+        repos=[r for r in w.repos.list(path_prefix=target) if r.path==target or r.path=='/Workspace'+target]
+        repo=repos[0] if repos else w.repos.create('https://github.com/Im-AlexMoon/Databricks-Applebees_anomaly_detection.git','gitHub',path=target)
+        w.repos.update(repo.id,branch='codex/phase2-pipeline')
+        info=w.repos.get(repo.id)
+        state['repo_id']=info.id;_atomic_json(ROOT/'.cache/databricks/deployment.json',state)
+        print(json.dumps({'repo_id':info.id,'path':info.path,'branch':info.branch,'head_commit_id':info.head_commit_id}))
+    elif args.command=='cancel':
+        w=client();run=w.jobs.get_run(args.run_id)
+        if run.state and run.state.life_cycle_state.value not in ('TERMINATED','SKIPPED','INTERNAL_ERROR'):
+            w.jobs.cancel_run(args.run_id)
+        print(json.dumps({'cancel_requested':args.run_id}))
 
 
 if __name__=='__main__':

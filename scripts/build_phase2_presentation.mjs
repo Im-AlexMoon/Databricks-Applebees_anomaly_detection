@@ -132,7 +132,7 @@ function chart(s,categories,series,options={}){
  chart(s,entries.map(([k])=>names[k]??k.replaceAll('_',' ')),[{name:'Miles de UM',values:entries.map(([,v])=>v/1000),fill:c.green}]);
  text(s,money(m.eligible_discount),940,220,275,120,35,true,c.green);
  text(s,'Descuento conciliado\n\n'+pct(n(m.accounts_with_discount)/n(m.valid_accounts))+' de cuentas\ncon descuento',940,366,275,170,24);
- foot(s,'Gráfico en miles de unidades monetarias del exportado. Grupos provisionales. Población conciliada.');
+ foot(s,'Grupos con mayor importe, en miles de UM. Población conciliada y motivos provisionales.');
 }
 // 7. Editable comparison chart: direct evidence versus co-occurrence.
 {

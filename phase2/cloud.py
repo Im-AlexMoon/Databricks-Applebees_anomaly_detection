@@ -157,8 +157,9 @@ def deployment_receipt(state):
 
 
 def run_status(w,run_id,state):
-    run=w.jobs.get_run(run_id)
-    result={'run_id':run_id,'run_page_url':run.run_page_url,'state':run.state.as_dict() if run.state else {},'tasks':[]}
+    run=w.jobs.get_run(run_id,include_resolved_values=True)
+    result={'run_id':run_id,'run_page_url':run.run_page_url,'state':run.state.as_dict() if run.state else {},
+            'job_parameters':[p.as_dict() for p in run.job_parameters or []],'tasks':[]}
     for task in run.tasks or []:
         info={'task_key':task.task_key,'run_id':task.run_id,'state':task.state.as_dict() if task.state else {}}
         if task.state and task.state.result_state and str(task.state.result_state.value)!='SUCCESS':
@@ -179,7 +180,7 @@ def main():
     sub.add_parser('deploy')
     sub.add_parser('run')
     status=sub.add_parser('status');status.add_argument('run_id',type=int)
-    sub.add_parser('evidence')
+    evidence=sub.add_parser('evidence');evidence.add_argument('--run-id',type=int)
     sub.add_parser('events')
     sub.add_parser('repo')
     cancel=sub.add_parser('cancel');cancel.add_argument('run_id',type=int)
@@ -206,6 +207,10 @@ def main():
         print(json.dumps(run_status(client(),args.run_id,state),indent=2))
     elif args.command=='evidence':
         w=client();root=ROOT/'outputs/phase2_cloud'/state['batch_version'];root.mkdir(parents=True,exist_ok=True)
+        run_id=args.run_id or state.get('last_run_id')
+        run=w.jobs.get_run(run_id) if run_id else None
+        if run and (not run.state.result_state or run.state.result_state.value!='SUCCESS'):
+            raise ValueError('Wait for all four tasks to finish successfully before freezing evidence')
         for name in ('validation.json','presentation_data.json'):
             remote=state['variables']['landing_root']+'/evidence/'+state['batch_version']+'/'+name
             response=w.files.download(remote)
@@ -215,6 +220,20 @@ def main():
             response.contents.close()
         settings={'job':w.jobs.get(state['job_id']).as_dict(),'pipeline':w.pipelines.get(state['pipeline_id']).as_dict()}
         _atomic_json(root/'resource_settings.json',settings)
+        if run:
+            import shutil
+            from databricks.sdk.service.jobs import ViewsToExport
+            frozen=root/'runs'/str(run_id);frozen.mkdir(parents=True,exist_ok=True)
+            for name in ('validation.json','presentation_data.json','resource_settings.json'):
+                destination=frozen/name
+                if not destination.exists():
+                    shutil.copyfile(root/name,destination)
+            for task in run.tasks or []:
+                if task.task_key=='presentation_outputs':
+                    exported=w.jobs.export_run(task.run_id,views_to_export=ViewsToExport.CODE)
+                    for i,view in enumerate(exported.views or []):
+                        (frozen/f'presentation_outputs-{i}.html').write_text(view.content,encoding='utf-8')
+            _atomic_json(frozen/'run.json',run.as_dict())
         print(str(root))
     elif args.command=='events':
         if 'pipeline_id' not in state:

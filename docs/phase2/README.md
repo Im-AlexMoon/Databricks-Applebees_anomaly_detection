@@ -158,6 +158,12 @@ La evidencia privada por lote se descarga a `outputs/phase2_cloud/<batch_version
 estado del job, eventos, `validation.json` y `presentation_data.json`. Este último
 incluye SQL y la procedencia Databricks Gold. La presentación debe usar únicamente
 un lote aceptado y citar su ejecución, snapshot y versión de motivos.
+`evidence` exige que las cuatro tareas hayan terminado bien y conserva una
+copia por ejecución en `runs/<run_id>`, además del HTML exportado del notebook.
+`scripts/verify_phase2_delivery.py` contrasta la carga acumulada, el incremento y
+la repetición. Exige igualdad de todas las métricas y de los agregados Gold
+exportados al repetir el mismo snapshot. El incremento debe corresponder
+exactamente a los registros del último día del manifiesto.
 
 ## Presentación y respaldo
 
